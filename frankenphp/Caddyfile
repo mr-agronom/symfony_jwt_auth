@@ -1,59 +1,75 @@
 {
-	{$CADDY_GLOBAL_OPTIONS}
+    {$CADDY_GLOBAL_OPTIONS}
 
-	frankenphp {
-		{$FRANKENPHP_CONFIG}
-	}
+    # FrankenPHP объединяет PHP и Caddy
+    frankenphp {
+        {$FRANKENPHP_CONFIG}
+    }
 }
 
 {$CADDY_EXTRA_CONFIG}
 
 {$SERVER_NAME:localhost} {
-	log {
-		{$CADDY_SERVER_LOG_OPTIONS}
-		# Redact the authorization query parameter that can be set by Mercure
-		format filter {
-			request>uri query {
-				replace authorization REDACTED
-			}
-		}
-	}
+    log {
+        {$CADDY_SERVER_LOG_OPTIONS}
+        format filter {
+            request>uri query {
+                replace authorization REDACTED
+            }
+        }
+    }
 
-	root /app/public
-	encode zstd br gzip
+    encode zstd br gzip
 
-	mercure {
-		# Transport to use (default to Bolt)
-		transport_url {$MERCURE_TRANSPORT_URL:bolt:///data/mercure.db}
-		# Publisher JWT key
-		publisher_jwt {env.MERCURE_PUBLISHER_JWT_KEY} {env.MERCURE_PUBLISHER_JWT_ALG}
-		# Subscriber JWT key
-		subscriber_jwt {env.MERCURE_SUBSCRIBER_JWT_KEY} {env.MERCURE_SUBSCRIBER_JWT_ALG}
-		# Allow anonymous subscribers (double-check that it's what you want)
-		anonymous
-		# Enable the subscription API (double-check that it's what you want)
-		subscriptions
-		# Extra directives
-		{$MERCURE_EXTRA_DIRECTIVES}
-	}
+    # --- Mercure Hub ---
+    mercure {
+        transport_url {$MERCURE_TRANSPORT_URL:bolt:///data/mercure.db}
+        publisher_jwt {env.MERCURE_PUBLISHER_JWT_KEY} {env.MERCURE_PUBLISHER_JWT_ALG}
+        subscriber_jwt {env.MERCURE_SUBSCRIBER_JWT_KEY} {env.MERCURE_SUBSCRIBER_JWT_ALG}
+        anonymous
+        subscriptions
+        {$MERCURE_EXTRA_DIRECTIVES}
+    }
 
-	vulcain
+    vulcain
+    {$CADDY_SERVER_EXTRA_DIRECTIVES}
 
-	{$CADDY_SERVER_EXTRA_DIRECTIVES}
+    header ?Permissions-Policy "browsing-topics=()"
 
-	# Disable Topics tracking if not enabled explicitly: https://github.com/jkarlin/topics
-	header ?Permissions-Policy "browsing-topics=()"
+    # --- Mercure route ---
+    handle_path /.well-known/mercure* {
+        reverse_proxy php:80
+    }
 
-	@phpRoute {
-		not path /.well-known/mercure*
-		not file {path}
-	}
-	rewrite @phpRoute index.php
+    # --- Symfony API ---
+    handle_path /api/* {
+        # убираем /api перед передачей в Symfony
+        uri strip_prefix /api
 
-	@frontController path index.php
-	php @frontController
+        # корень Symfony
+        root * /app/public
 
-	file_server {
-		hide *.php
-	}
+        # если файла нет, отдаём index.php
+        @notFile {
+            not file {path}
+        }
+        rewrite @notFile /index.php
+
+        # обрабатываем PHP через FrankenPHP
+        php {
+            root /app/public
+        }
+    }
+
+
+
+    # --- Vue Frontend (отдельный контейнер) ---
+    handle {
+        reverse_proxy frontend:80
+    }
+
+    # --- Статические файлы фронта ---
+    file_server {
+        hide *.php
+    }
 }
