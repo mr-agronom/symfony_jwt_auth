@@ -2,26 +2,34 @@
 
 namespace App\Controller;
 
-use App\Request\Auth\RegisterRequest;
-use App\Response\Auth\RegisterResponse;
+use App\DTO\Auth\UserRegisterDTO;
+use App\Service\Auth\UserAuthService;
 use Nelmio\ApiDocBundle\Attribute\Model;
 use OpenApi\Attributes as OA;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\Routing\Attribute\Route;
 
 #[Route('/api/auth/')]
 #[OA\Tag('Authentication')]
 final class AuthController extends AbstractController
 {
+    public function __construct(
+        private readonly UserAuthService $userAuthService
+    ) {
+
+    }
+
     #[Route('register', name: 'register', methods: ['POST'])]
-    #[OA\RequestBody(content: new Model(type: RegisterRequest::class))]
+    #[OA\RequestBody(content: new Model(type: UserRegisterDTO::class))]
     #[OA\Response(
         response: 200,
         description: 'Successful response',
-        content: new Model(type: RegisterResponse::class)
     )]
-    public function register(): RegisterResponse
+    public function register(#[MapRequestPayload] UserRegisterDTO $userRegisterDTO): JsonResponse
     {
-        return new RegisterResponse('');
+        $this->userAuthService->register($userRegisterDTO);
+        return $this->json([]);
     }
 }
